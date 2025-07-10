@@ -3,13 +3,21 @@ Resources:
 
   ### Frontend Hosting (S3 + CloudFront) ###
   FrontendBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub ${AWS::StackName}-frontend
-      WebsiteConfiguration:
-        IndexDocument: index.html
-        ErrorDocument: error.html
-      AccessControl: PublicRead
+  Type: AWS::S3::Bucket
+  Properties:
+    BucketName: !Sub ${AWS::StackName}-frontend-muhirwa
+    WebsiteConfiguration:
+      IndexDocument: index.html
+      ErrorDocument: error.html
+    OwnershipControls:
+      Rules:
+        - ObjectOwnership: BucketOwnerEnforced
+    PublicAccessBlockConfiguration:
+      BlockPublicAcls: false
+      IgnorePublicAcls: false
+      BlockPublicPolicy: false
+      RestrictPublicBuckets: false
+
 
   FrontendBucketPolicy:
     Type: AWS::S3::BucketPolicy

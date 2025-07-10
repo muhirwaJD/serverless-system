@@ -4,7 +4,7 @@ import uuid
 import os
 
 dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table(os.environ["tasks"])
+table = dynamodb.Table(os.environ["TABLE_NAME"])
 
 def handler(event, context):
     try:
@@ -27,6 +27,9 @@ def handler(event, context):
 
     except Exception as e:
         return {
-            "statusCode": 500,
-            "body": json.dumps({"error": str(e)})
-        }
+        "statusCode": 500,
+        "body": json.dumps({
+            "message": "Internal server error",
+            "error": str(e)
+        })
+    }

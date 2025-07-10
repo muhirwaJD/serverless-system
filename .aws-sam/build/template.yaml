@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Serverless Task Management System
 Transform: AWS::Serverless-2016-10-31
 Resources:
   FrontendBucket:
@@ -148,42 +150,19 @@ Resources:
     Properties:
       TopicName: TaskReminderTopic
   TaskApi:
-    Type: AWS::Serverless::Api
+    Type: AWS::Serverless::HttpApi
     Properties:
       Name: TaskApi
-      StageName: Prod
-      TracingEnabled: true
-      Cors:
-        AllowMethods: '''GET,POST,PUT,OPTIONS'''
-        AllowHeaders: '''*'''
-        AllowOrigin: '''*'''
-      DefinitionBody:
-        openapi: 3.0.1
-        info:
-          title: Task API
-          version: '1.0'
-        paths:
-          /create:
-            post:
-              x-amazon-apigateway-integration:
-                uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateTaskFunction.Arn}/invocations
-                httpMethod: POST
-                type: aws_proxy
-          /tasks:
-            get:
-              x-amazon-apigateway-integration:
-                uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetTaskFunction.Arn}/invocations
-                httpMethod: GET
-                type: aws_proxy
-          /task/{id}:
-            put:
-              x-amazon-apigateway-integration:
-                uri:
-                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateTaskFunction.Arn}/invocations
-                httpMethod: PUT
-                type: aws_proxy
+      CorsConfiguration:
+        AllowMethods:
+        - GET
+        - POST
+        - PUT
+        - OPTIONS
+        AllowOrigins:
+        - '*'
+        AllowHeaders:
+        - '*'
   CreateTaskFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -197,11 +176,11 @@ Resources:
       Tracing: Active
       Events:
         CreateAPI:
-          Type: Api
+          Type: HttpApi
           Properties:
             Path: /create
             Method: post
-            RestApiId:
+            ApiId:
               Ref: TaskApi
       Environment:
         Variables:
@@ -219,15 +198,7 @@ Resources:
       LogGroupName:
         Fn::Sub: /aws/lambda/${CreateTaskFunction}
     DeletionPolicy: Retain
-  CreateTaskApiPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName:
-        Ref: CreateTaskFunction
-      Action: lambda:InvokeFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn:
-        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskApi}/*/POST/create
+    UpdateReplacePolicy: Retain
   GetTaskFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -241,11 +212,11 @@ Resources:
       Tracing: Active
       Events:
         GetAPI:
-          Type: Api
+          Type: HttpApi
           Properties:
             Path: /tasks
             Method: get
-            RestApiId:
+            ApiId:
               Ref: TaskApi
       Environment:
         Variables:
@@ -264,14 +235,7 @@ Resources:
       LogGroupName:
         Fn::Sub: /aws/lambda/${GetTaskFunction}
     DeletionPolicy: Retain
-  GetTaskApiPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName:
-        Ref: GetTaskFunction
-      Action: lambda:InvokeFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: arn:aws:execute-api:eu-west-1:149536452878:5ri4i2h0d8/*/GET/tasks
+    UpdateReplacePolicy: Retain
   UpdateTaskFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -285,11 +249,11 @@ Resources:
       Tracing: Active
       Events:
         UpdateAPI:
-          Type: Api
+          Type: HttpApi
           Properties:
             Path: /task/{id}
             Method: put
-            RestApiId:
+            ApiId:
               Ref: TaskApi
       Environment:
         Variables:
@@ -308,14 +272,7 @@ Resources:
       LogGroupName:
         Fn::Sub: /aws/lambda/${UpdateTaskFunction}
     DeletionPolicy: Retain
-  UpdateTaskApiPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName:
-        Ref: UpdateTaskFunction
-      Action: lambda:InvokeFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: arn:aws:execute-api:eu-west-1:149536452878:5ri4i2h0d8/*/GET/tasks
+    UpdateReplacePolicy: Retain
   NotifyTaskFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -345,6 +302,36 @@ Resources:
       LogGroupName:
         Fn::Sub: /aws/lambda/${NotifyTaskFunction}
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+Outputs:
+  FrontendURL:
+    Description: CloudFront Distribution URL for the frontend
+    Value:
+      Fn::Sub: https://${FrontendDistribution.DomainName}
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-FrontendURL
+  ApiGatewayURL:
+    Description: HTTP API Gateway URL
+    Value:
+      Fn::Sub: https://${TaskApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ApiURL
+  S3BucketName:
+    Description: S3 Bucket name for frontend hosting
+    Value:
+      Ref: FrontendBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-S3Bucket
+  TaskTableName:
+    Description: DynamoDB Table name for tasks
+    Value:
+      Ref: TaskTable
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-TaskTable
 Metadata:
   AWS::Composer::Groups:
     Group:
@@ -360,6 +347,6 @@ Metadata:
       - GetTaskFunction
       - UpdateTaskFunction
     Group3:
-      Label: REST APIs
+      Label: HTTP APIs
       Members:
       - TaskApi

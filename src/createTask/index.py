@@ -22,12 +22,22 @@ def handler(event, context):
 
         return {
             "statusCode": 201,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "POST, OPTIONS"
+            },
             "body": json.dumps({"message": "Task created", "taskId": task_id})
         }
 
     except Exception as e:
         return {
             "statusCode": 500,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "POST, OPTIONS"
+            },
             "body": json.dumps({
                 "message": "Internal server error",
                 "error": str(e)

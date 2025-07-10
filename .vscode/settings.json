@@ -1,0 +1,33 @@
+{
+  "yaml.schemas": {
+    "https://raw.githubusercontent.com/aws/aws-sam-cli/develop/schema/samcli.json": [
+      "template.yaml",
+      "template.yml",
+      "**/template.yaml", 
+      "**/template.yml"
+    ]
+  },
+  "yaml.customTags": [
+    "!Ref",
+    "!Condition",
+    "!Equals",
+    "!FindInMap",
+    "!GetAtt",
+    "!GetAZs", 
+    "!ImportValue",
+    "!Join",
+    "!Select",
+    "!Split",
+    "!Sub",
+    "!Base64",
+    "!Cidr",
+    "!If",
+    "!Not",
+    "!And",
+    "!Or"
+  ],
+  "yaml.validate": false,
+  "files.associations": {
+    "template.yaml": "cloudformation"
+  }
+}

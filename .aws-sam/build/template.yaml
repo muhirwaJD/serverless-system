@@ -219,6 +219,15 @@ Resources:
       LogGroupName:
         Fn::Sub: /aws/lambda/${CreateTaskFunction}
     DeletionPolicy: Retain
+  CreateTaskApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: CreateTaskFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskApi}/*/POST/create
   GetTaskFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -243,7 +252,8 @@ Resources:
           TABLE_NAME:
             Ref: TaskTable
       Policies:
-      - DynamoDBReadPolicy:
+      - AWSLambdaBasicExecutionRole
+      - DynamoDBCrudPolicy:
           TableName:
             Ref: TaskTable
     Metadata:
@@ -254,6 +264,14 @@ Resources:
       LogGroupName:
         Fn::Sub: /aws/lambda/${GetTaskFunction}
     DeletionPolicy: Retain
+  GetTaskApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: GetTaskFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: arn:aws:execute-api:eu-west-1:149536452878:5ri4i2h0d8/*/GET/tasks
   UpdateTaskFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -278,6 +296,7 @@ Resources:
           TABLE_NAME:
             Ref: TaskTable
       Policies:
+      - AWSLambdaBasicExecutionRole
       - DynamoDBCrudPolicy:
           TableName:
             Ref: TaskTable
@@ -289,6 +308,14 @@ Resources:
       LogGroupName:
         Fn::Sub: /aws/lambda/${UpdateTaskFunction}
     DeletionPolicy: Retain
+  UpdateTaskApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: UpdateTaskFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: arn:aws:execute-api:eu-west-1:149536452878:5ri4i2h0d8/*/GET/tasks
   NotifyTaskFunction:
     Type: AWS::Serverless::Function
     Properties:

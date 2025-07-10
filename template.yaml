@@ -1,0 +1,311 @@
+Transform: AWS::Serverless-2016-10-31
+Resources:
+
+  ### Frontend Hosting (S3 + CloudFront) ###
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-frontend
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      AccessControl: PublicRead
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+
+  ### Cognito Authentication ###
+  CognitoAuthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-AuthRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                cognito-identity.amazonaws.com:aud: !Ref IdentityPool
+              ForAnyValue:StringLike:
+                cognito-identity.amazonaws.com:amr: authenticated
+      Policies:
+        - PolicyName: AllowInvokeAPIGateway
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: '*'
+
+  IdentityPoolWithRoles:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref IdentityPool
+      Roles:
+        authenticated: !GetAtt CognitoAuthRole.Arn
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AWS::StackName}-UserPool
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AliasAttributes:
+        - email
+        - preferred_username
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${AWS::StackName}-Client
+      GenerateSecret: false
+
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub ${AWS::StackName}-IdentityPool
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        - ClientId: !Ref UserPoolClient
+          ProviderName: !GetAtt UserPool.ProviderName
+
+  ### DynamoDB ###
+  TaskTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: TaskTable
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  ### SNS Topic ###
+  TaskReminderTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: TaskReminderTopic
+
+  ### API Gateway ###
+  TaskApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: TaskApi
+      StageName: Prod
+      TracingEnabled: true
+      Cors:
+        AllowMethods: '''GET,POST,PUT,OPTIONS'''
+        AllowHeaders: '''*'''
+        AllowOrigin: '''*'''
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: Task API
+          version: '1.0'
+        paths:
+          /create:
+            post:
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateTaskFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+          /tasks:
+            get:
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetTaskFunction.Arn}/invocations
+                httpMethod: GET
+                type: aws_proxy
+          /task/{id}:
+            put:
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateTaskFunction.Arn}/invocations
+                httpMethod: PUT
+                type: aws_proxy
+
+  ### Lambda: Create Task ###
+  CreateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: createTask
+      Description: Create a new task
+      CodeUri: src/createTask
+      Handler: index.handler
+      Runtime: python3.13
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Events:
+        CreateAPI:
+          Type: Api
+          Properties:
+            Path: /create
+            Method: post
+            RestApiId: !Ref TaskApi
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TaskTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TaskTable
+
+  CreateTaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CreateTaskFunction}
+    DeletionPolicy: Retain
+
+  ### Lambda: Get Tasks ###
+  GetTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getTaskFn
+      Description: Retrieve tasks
+      CodeUri: src/getTask
+      Handler: index.handler
+      Runtime: python3.13
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Events:
+        GetAPI:
+          Type: Api
+          Properties:
+            Path: /tasks
+            Method: get
+            RestApiId: !Ref TaskApi
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TaskTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TaskTable
+
+  GetTaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetTaskFunction}
+    DeletionPolicy: Retain
+
+  ### Lambda: Update Task ###
+  UpdateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: updateTaskFn
+      Description: Update a task
+      CodeUri: src/updateTask
+      Handler: index.handler
+      Runtime: python3.13
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Events:
+        UpdateAPI:
+          Type: Api
+          Properties:
+            Path: /task/{id}
+            Method: put
+            RestApiId: !Ref TaskApi
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TaskTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TaskTable
+
+  UpdateTaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${UpdateTaskFunction}
+    DeletionPolicy: Retain
+
+  ### Lambda: Notify Task ###
+  NotifyTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: notifyTaskFn
+      Description: Notify via SNS
+      CodeUri: src/notifyTask
+      Handler: index.handler
+      Runtime: python3.13
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Environment:
+        Variables:
+          TOPIC_ARN: !Ref TaskReminderTopic
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskReminderTopic.TopicName
+
+  NotifyTaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${NotifyTaskFunction}
+    DeletionPolicy: Retain
+Metadata:
+  AWS::Composer::Groups:
+    Group:
+      Label: Login/Auth
+      Members:
+        - IdentityPool
+        - UserPool
+        - UserPoolClient
+    Group2:
+      Label: Lambda Functions
+      Members:
+        - CreateTaskFunction
+        - GetTaskFunction
+        - UpdateTaskFunction
+    Group3:
+      Label: REST APIs
+      Members:
+        - TaskApi
